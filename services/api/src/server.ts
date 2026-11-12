@@ -15,7 +15,7 @@ await app.register(rateLimit, { max: 90, timeWindow: "1 minute" });
 
 const newPlayerSchema = z.object({ displayName: z.string().trim().min(2).max(32), kingdomName: z.string().trim().min(2).max(40) });
 const upgradeSchema = z.object({ buildingId: z.string().uuid(), idempotencyKey: z.string().min(12).max(80) });
-const collectSchema = z.object({ idempotencyKey: z.string().min(12).max(96) });
+const collectSchema = z.object({ idempotencyKey: z.string().min(12).max(80) });
 
 async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -45,9 +45,17 @@ app.post("/v1/players", async (request, reply) => {
     for (const [code, x, y] of starterBuildings) await client.query(
       "INSERT INTO buildings(kingdom_id,building_code,grid_x,grid_y) VALUES($1,$2,$3,$4)", [kingdomId, code, x, y]
     );
+    await client.query("INSERT INTO player_missions(player_id,mission_id,status) SELECT $1,id,'available' FROM missions WHERE is_active=true ON CONFLICT (player_id,mission_id) DO NOTHING", [playerId]);
     return { playerId, kingdomId };
   });
   return reply.code(201).send(player);
+});
+
+app.get("/v1/players/:playerId/missions", async (request, reply) => {
+  const params = z.object({ playerId: z.string().uuid() }).safeParse(request.params);
+  if (!params.success) return reply.code(400).send({ error: "invalid_player_id" });
+  const result = await pool.query("SELECT m.mission_code,m.title,m.description,pm.progress,pm.status,pm.completed_at FROM player_missions pm JOIN missions m ON m.id=pm.mission_id WHERE pm.player_id=$1 ORDER BY m.mission_code", [params.data.playerId]);
+  return { missions: result.rows };
 });
 
 app.get("/v1/kingdoms/:kingdomId", async (request, reply) => {
@@ -97,6 +105,9 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
       output[code] = actualGain;
     }
     await client.query("UPDATE kingdoms SET last_collected_at=now(),updated_at=now() WHERE id=$1", [params.data.kingdomId]);
+    if (Object.values(output).some((amount) => amount > 0)) {
+      await client.query("UPDATE player_missions pm SET status='completed',completed_at=now(),progress=jsonb_build_object('collected',true) FROM kingdoms k JOIN missions m ON m.mission_code='collect_once' WHERE pm.player_id=k.player_id AND pm.mission_id=m.id AND k.id=$1 AND pm.status<>'claimed'", [params.data.kingdomId]);
+    }
     return { replayed: false, collected: output, elapsedHours };
   });
   if (!result) return reply.code(404).send({ error: "kingdom_not_found" });
@@ -108,7 +119,7 @@ app.post("/v1/kingdoms/:kingdomId/upgrade", async (request, reply) => {
   const body = upgradeSchema.safeParse(request.body);
   if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_input" });
   const result = await transaction(async (client) => {
-    const kingdomLock = await client.query("SELECT id FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
+    const kingdomLock = await client.query("SELECT id,player_id FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
     if (!kingdomLock.rowCount) return { error: "building_not_found" as const };
     const building = await client.query("SELECT id,building_code,level FROM buildings WHERE id=$1 AND kingdom_id=$2 FOR UPDATE", [body.data.buildingId, params.data.kingdomId]);
     if (!building.rowCount) return { error: "building_not_found" as const };
@@ -126,6 +137,7 @@ app.post("/v1/kingdoms/:kingdomId/upgrade", async (request, reply) => {
       await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,reference_id,idempotency_key) VALUES($1,$2,$3,$4,'building_upgrade',$5,$6)", [params.data.kingdomId, code, -cost, after, b.id, `${body.data.idempotencyKey}:${code}`]);
     }
     await client.query("UPDATE buildings SET level=level+1,updated_at=now() WHERE id=$1", [b.id]);
+    await client.query("UPDATE player_missions pm SET status='completed',completed_at=now(),progress=jsonb_build_object('upgraded',true) FROM missions m WHERE pm.mission_id=m.id AND pm.player_id=$1 AND m.mission_code='first_upgrade' AND pm.status<>'claimed'", [kingdomLock.rows[0]!.player_id]);
     return { ok: true, building: String(b.building_code), newLevel: Number(b.level) + 1 };
   });
   if ("error" in result) {
