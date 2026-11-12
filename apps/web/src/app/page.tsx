@@ -1,10 +1,10 @@
 "use client";
 
 import IsometricKingdom from "../components/IsometricKingdom";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Resource = { name: string; amount: number; rate: number; icon: string };
-type Building = { id: number; name: string; level: number; icon: string; description: string };
+type Building = { id: string | number; name: string; level: number; icon: string; description: string };
 
 const initialResources: Resource[] = [
   { name: "Wood", amount: 420, rate: 12, icon: "🪵" },
@@ -84,7 +84,7 @@ export default function Home() {
       <section className="content-grid">
         <div className="main-panel">
           <div className="panel-heading"><div><div className="eyebrow">KINGDOM MANAGEMENT</div><h2>{selected === "Overview" ? "Your domain" : selected}</h2></div><span className="level-pill">✦ &nbsp; LEVEL 01</span></div>
-          <div className="notice">{notice}</div>
+          <div className="notice"><span>{notice}</span><span className="api-status">{apiStatus === "server connected" ? "● SERVER SYNCED" : "● LOCAL PREVIEW"}</span></div>
           {selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
             {buildings.map((building) => <article className="building-card" key={building.id}><div className="building-art">{building.icon}<span>LVL {building.level}</span></div><div className="building-info"><h3>{building.name}</h3><p>{building.description}</p><button onClick={() => upgrade(building)}>UPGRADE <span>· {100 * building.level} 🪵 / {60 * building.level} 🪨</span></button></div></article>)}
           </div> : <div className="empty-state"><span>✧</span><h3>{selected} is on the roadmap</h3><p>This feature will be added as the playable MVP grows.</p></div>}
