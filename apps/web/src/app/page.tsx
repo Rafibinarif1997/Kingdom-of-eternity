@@ -1,5 +1,6 @@
 "use client";
 
+import IsometricKingdom from "../components/IsometricKingdom";
 import { useMemo, useState } from "react";
 
 type Resource = { name: string; amount: number; rate: number; icon: string };
@@ -68,12 +69,7 @@ export default function Home() {
           <p>Raise your walls, command your resources, and turn a humble settlement into a kingdom that will stand through the ages.</p>
           <div className="hero-actions"><button className="primary-btn" onClick={() => { setSelected("Buildings"); setNotice("Choose a building to strengthen your kingdom."); }}>MANAGE KINGDOM <span>↗</span></button><span className="hero-note">✦ &nbsp; YOUR STORY, YOUR KINGDOM</span></div>
         </div>
-        <div className="hero-art" aria-label="Illustrated fantasy castle">
-          <div className="sun-glow" /><div className="mountain mountain-back" /><div className="mountain mountain-front" />
-          <div className="castle"><div className="tower tower-left"><i /></div><div className="tower tower-mid"><i /></div><div className="tower tower-right"><i /></div><div className="castle-wall"><div className="gate" /></div></div>
-          <div className="hill hill-one" /><div className="hill hill-two" />
-          <div className="art-caption"><span>✧</span> THE CITADEL OF DAWN</div>
-        </div>
+        <div className="hero-art"><IsometricKingdom /></div>
       </section>
 
       <section className="resource-strip">
