@@ -13,7 +13,6 @@ await app.register(helmet);
 await app.register(cors, { origin: allowedOrigins });
 await app.register(rateLimit, { max: 90, timeWindow: "1 minute" });
 
-const resourceCodes = ["wood", "stone", "food", "iron", "gold"] as const;
 const newPlayerSchema = z.object({ displayName: z.string().trim().min(2).max(32), kingdomName: z.string().trim().min(2).max(40) });
 const upgradeSchema = z.object({ buildingId: z.string().uuid(), idempotencyKey: z.string().min(12).max(96) });
 const collectSchema = z.object({ idempotencyKey: z.string().min(12).max(96) });
@@ -68,13 +67,13 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
   const body = collectSchema.safeParse(request.body);
   if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_input" });
   const result = await transaction(async (client) => {
-    const exists = await client.query("SELECT id FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
+    const exists = await client.query("SELECT id,last_collected_at FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
     if (!exists.rowCount) return null;
-    const previous = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key=$1", [body.data.idempotencyKey]);
+    const previous = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key LIKE $1 || ':%' LIMIT 1", [body.data.idempotencyKey]);
     if (previous.rowCount) return { replayed: true };
     const balances = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 FOR UPDATE", [params.data.kingdomId]);
     const buildings = await client.query("SELECT building_code,level FROM buildings WHERE kingdom_id=$1 AND status='active'", [params.data.kingdomId]);
-    const levelSum = buildings.rows.reduce((sum, b) => sum + Number(b.level), 0);
+    const elapsedMs = Date.now() - new Date(exists.rows[0]!.last_collected_at).getTime();\n    const elapsedHours = Math.min(24, Math.floor(elapsedMs / 3_600_000));\n    if (elapsedHours < 1) return { replayed: false, collected: {}, nextCollectionInSeconds: Math.ceil((3_600_000 - (elapsedMs % 3_600_000)) / 1000) };
     const rates: Record<string, number> = {
       wood: buildings.rows.filter(b => b.building_code === "lumber_mill").reduce((s,b) => s + 12 * Number(b.level),0),
       stone: buildings.rows.filter(b => b.building_code === "stone_mine").reduce((s,b) => s + 8 * Number(b.level),0),
@@ -84,14 +83,14 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
     const output: Record<string, number> = {};
     for (const row of balances.rows) {
       const code = String(row.resource_code);
-      const gain = Math.max(0, Math.floor((rates[code] ?? 0) * 1));
+      const gain = Math.max(0, Math.floor((rates[code] ?? 0) * elapsedHours));
       if (!gain) continue;
       const after = Number(row.balance) + gain;
       await client.query("UPDATE resource_balances SET balance=$1,updated_at=now() WHERE kingdom_id=$2 AND resource_code=$3", [after, params.data.kingdomId, code]);
       await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,idempotency_key) VALUES($1,$2,$3,$4,'manual_collect',$5)", [params.data.kingdomId, code, gain, after, `${body.data.idempotencyKey}:${code}`]);
       output[code] = gain;
     }
-    return { replayed: false, collected: output, productionTick: levelSum };
+    await client.query("UPDATE kingdoms SET last_collected_at=now(),updated_at=now() WHERE id=$1", [params.data.kingdomId]);\n    return { replayed: false, collected: output, elapsedHours };
   });
   if (!result) return reply.code(404).send({ error: "kingdom_not_found" });
   return result;
@@ -110,7 +109,7 @@ app.post("/v1/kingdoms/:kingdomId/upgrade", async (request, reply) => {
     const resources = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 AND resource_code IN ('wood','stone') FOR UPDATE", [params.data.kingdomId]);
     const values = Object.fromEntries(resources.rows.map(r => [r.resource_code, Number(r.balance)])) as Record<string, number>;
     if ((values.wood ?? 0) < woodCost || (values.stone ?? 0) < stoneCost) return { error: "insufficient_resources" as const, required: { wood: woodCost, stone: stoneCost } };
-    const replay = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key=$1", [body.data.idempotencyKey]);
+    const replay = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key LIKE $1 || ':%' LIMIT 1", [body.data.idempotencyKey]);
     if (replay.rowCount) return { error: "duplicate_request" as const };
     for (const [code, cost] of [["wood", woodCost], ["stone", stoneCost]] as const) {
       const after = values[code]! - cost;
