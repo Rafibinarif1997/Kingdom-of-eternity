@@ -14,7 +14,9 @@ async function main() {
   await nft.waitForDeployment();
   const token = await hre.ethers.deployContract("KingToken", [owner]);
   await token.waitForDeployment();
-  const rewardTokenAddress = process.env.REWARD_TOKEN_ADDRESS;\n  if (!rewardTokenAddress || !hre.ethers.isAddress(rewardTokenAddress)) throw new Error("Set REWARD_TOKEN_ADDRESS to a verified testnet reward token. Do not assume a USDT contract address.");\n  const distributor = await hre.ethers.deployContract("FundedRewardDistributor", [owner, rewardTokenAddress]);
+  const rewardTokenAddress = process.env.REWARD_TOKEN_ADDRESS;
+  if (!rewardTokenAddress || !hre.ethers.isAddress(rewardTokenAddress)) throw new Error("Set REWARD_TOKEN_ADDRESS to a verified testnet reward token. Do not assume a USDT contract address.");
+  const distributor = await hre.ethers.deployContract("FundedRewardDistributor", [owner, rewardTokenAddress]);
   await distributor.waitForDeployment();
 
   console.log(JSON.stringify({
@@ -23,6 +25,7 @@ async function main() {
     deployer: owner,
     kingdomAccessNFT: await nft.getAddress(),
     kingToken: await token.getAddress(),
+    rewardToken: rewardTokenAddress,
     fundedRewardDistributor: await distributor.getAddress()
   }, null, 2));
   console.log("No token supply was minted and no rewards were funded. Review tokenomics and contracts before use.");
