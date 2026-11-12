@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Phaser from "phaser";
+import * as Phaser from "phaser";
 
 class KingdomScene extends Phaser.Scene {
   private statusText?: Phaser.GameObjects.Text;
