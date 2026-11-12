@@ -22,5 +22,9 @@ jobs:
         run: pnpm --filter @koe/web lint
       - name: Typecheck
         run: pnpm --filter @koe/web typecheck
-      - name: Build
+      - name: Build web
         run: pnpm --filter @koe/web build
+      - name: Build API
+        run: pnpm --filter @koe/api build
+      - name: Test and compile contracts
+        run: pnpm --filter @koe/contracts test && pnpm --filter @koe/contracts build
