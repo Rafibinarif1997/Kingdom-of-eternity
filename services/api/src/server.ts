@@ -61,7 +61,7 @@ app.get("/v1/players/:playerId/missions", async (request, reply) => {
 app.get("/v1/kingdoms/:kingdomId", async (request, reply) => {
   const params = z.object({ kingdomId: z.string().uuid() }).safeParse(request.params);
   if (!params.success) return reply.code(400).send({ error: "invalid_kingdom_id" });
-  const k = await pool.query("SELECT id,name,level,experience FROM kingdoms WHERE id=$1", [params.data.kingdomId]);
+  const k = await pool.query("SELECT id,player_id,name,level,experience FROM kingdoms WHERE id=$1", [params.data.kingdomId]);
   if (!k.rowCount) return reply.code(404).send({ error: "kingdom_not_found" });
   const [resources, buildings] = await Promise.all([
     pool.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 ORDER BY resource_code", [params.data.kingdomId]),
