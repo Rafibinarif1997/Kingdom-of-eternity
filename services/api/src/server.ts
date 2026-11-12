@@ -14,7 +14,7 @@ await app.register(cors, { origin: allowedOrigins });
 await app.register(rateLimit, { max: 90, timeWindow: "1 minute" });
 
 const newPlayerSchema = z.object({ displayName: z.string().trim().min(2).max(32), kingdomName: z.string().trim().min(2).max(40) });
-const upgradeSchema = z.object({ buildingId: z.string().uuid(), idempotencyKey: z.string().min(12).max(96) });
+const upgradeSchema = z.object({ buildingId: z.string().uuid(), idempotencyKey: z.string().min(12).max(80) });
 const collectSchema = z.object({ idempotencyKey: z.string().min(12).max(96) });
 
 async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -69,7 +69,7 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
   const result = await transaction(async (client) => {
     const exists = await client.query("SELECT id,last_collected_at FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
     if (!exists.rowCount) return null;
-    const previous = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key LIKE $1 || ':%' LIMIT 1", [body.data.idempotencyKey]);
+    const previous = await client.query("SELECT id FROM resource_ledger WHERE kingdom_id=$1 AND idempotency_key = ANY($2::text[]) LIMIT 1", [params.data.kingdomId, ["wood", "stone", "food", "iron", "gold"].map(code => `${body.data.idempotencyKey}:${code}`)]);
     if (previous.rowCount) return { replayed: true };
     const balances = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 FOR UPDATE", [params.data.kingdomId]);
     const buildings = await client.query("SELECT building_code,level FROM buildings WHERE kingdom_id=$1 AND status='active'", [params.data.kingdomId]);
@@ -118,7 +118,7 @@ app.post("/v1/kingdoms/:kingdomId/upgrade", async (request, reply) => {
     const resources = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 AND resource_code IN ('wood','stone') FOR UPDATE", [params.data.kingdomId]);
     const values = Object.fromEntries(resources.rows.map(r => [r.resource_code, Number(r.balance)])) as Record<string, number>;
     if ((values.wood ?? 0) < woodCost || (values.stone ?? 0) < stoneCost) return { error: "insufficient_resources" as const, required: { wood: woodCost, stone: stoneCost } };
-    const replay = await client.query("SELECT id FROM resource_ledger WHERE idempotency_key LIKE $1 || ':%' LIMIT 1", [body.data.idempotencyKey]);
+    const replay = await client.query("SELECT id FROM resource_ledger WHERE kingdom_id=$1 AND idempotency_key = ANY($2::text[]) LIMIT 1", [params.data.kingdomId, ["wood", "stone"].map(code => `${body.data.idempotencyKey}:${code}`)]);
     if (replay.rowCount) return { error: "duplicate_request" as const };
     for (const [code, cost] of [["wood", woodCost], ["stone", stoneCost]] as const) {
       const after = values[code]! - cost;
