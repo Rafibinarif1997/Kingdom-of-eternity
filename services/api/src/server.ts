@@ -73,7 +73,9 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
     if (previous.rowCount) return { replayed: true };
     const balances = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 FOR UPDATE", [params.data.kingdomId]);
     const buildings = await client.query("SELECT building_code,level FROM buildings WHERE kingdom_id=$1 AND status='active'", [params.data.kingdomId]);
-    const elapsedMs = Date.now() - new Date(exists.rows[0]!.last_collected_at).getTime();\n    const elapsedHours = Math.min(24, Math.floor(elapsedMs / 3_600_000));\n    if (elapsedHours < 1) return { replayed: false, collected: {}, nextCollectionInSeconds: Math.ceil((3_600_000 - (elapsedMs % 3_600_000)) / 1000) };
+    const elapsedMs = Date.now() - new Date(exists.rows[0]!.last_collected_at).getTime();
+    const elapsedHours = Math.min(24, Math.floor(elapsedMs / 3_600_000));
+    if (elapsedHours < 1) return { replayed: false, collected: {}, nextCollectionInSeconds: Math.ceil((3_600_000 - (elapsedMs % 3_600_000)) / 1000) };
     const rates: Record<string, number> = {
       wood: buildings.rows.filter(b => b.building_code === "lumber_mill").reduce((s,b) => s + 12 * Number(b.level),0),
       stone: buildings.rows.filter(b => b.building_code === "stone_mine").reduce((s,b) => s + 8 * Number(b.level),0),
@@ -94,7 +96,8 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
       await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,idempotency_key) VALUES($1,$2,$3,$4,'manual_collect',$5)", [params.data.kingdomId, code, actualGain, after, `${body.data.idempotencyKey}:${code}`]);
       output[code] = actualGain;
     }
-    await client.query("UPDATE kingdoms SET last_collected_at=now(),updated_at=now() WHERE id=$1", [params.data.kingdomId]);\n    return { replayed: false, collected: output, elapsedHours };
+    await client.query("UPDATE kingdoms SET last_collected_at=now(),updated_at=now() WHERE id=$1", [params.data.kingdomId]);
+    return { replayed: false, collected: output, elapsedHours };
   });
   if (!result) return reply.code(404).send({ error: "kingdom_not_found" });
   return result;
