@@ -1,43 +1,44 @@
 # Kingdoms of Eternity
 
-A server-authoritative 2D isometric strategy-and-build game with optional on-chain ownership and rewards.
+**A 2D isometric strategy-and-build game prototype.** The repository contains a Next.js/Phaser game client, PostgreSQL-backed Fastify API, initial database schema, Solidity contracts, and CI checks.
 
-## Product decisions
+## Current implementation
 
-- Game: strategy & build, 2D isometric presentation
-- Chain: Robinhood Chain (EVM)
-- Initial network: Robinhood Chain Testnet
-- NFT collection target: 5,000 game-access NFTs
-- Planned mint price: USD 10 equivalent (not enabled in this MVP)
-- Token: KING (tokenomics and deployment require separate approval)
-- NFT marketplace target: OpenSea, subject to its support for Robinhood Chain at launch
-- Release sequence: playable MVP first, NFT launch later
+- Interactive Phaser isometric map with tile inspection
+- Kingdom resource HUD, buildings, upgrades and local preview mode
+- API synchronization for starter kingdom, resource collection, upgrades and starter missions when `NEXT_PUBLIC_API_URL` is configured
+- PostgreSQL schema for players, wallets, kingdoms, resources, buildings, missions, ledgers and audit events
+- Fastify API with validation, transactional updates, idempotency checks, server-timed production and storage caps
+- Solidity contracts: capped access NFT, capped KING token, funded Merkle reward distributor and test-only mUSDT mock
+- GitHub Actions CI for web lint/build, API compilation and contract tests
 
-## MVP principles
+## Start locally
 
-1. Gameplay and progression work without requiring a wallet.
-2. The backend is authoritative for resources, timers, battles, missions and rewards.
-3. NFT ownership gates game access only after a verified contract is configured.
-4. Rewards are paid only from a funded, disclosed pool. No guaranteed yield or reward from future mint proceeds.
-5. No mainnet deployment, paid mint, or real-token payout is enabled by default.
+Requirements: Node.js 22, pnpm 9.15+, Docker Compose.
 
-## Planned stack
+```bash
+pnpm install
+docker compose up --build
+```
 
-- Web client: Next.js, TypeScript, Phaser
-- API: Node.js / TypeScript
-- Database: PostgreSQL
-- Cache and jobs: Redis
-- Contracts: Solidity, OpenZeppelin, Foundry
-- Wallet integration: wagmi / viem
+Then in another terminal:
 
-## Repository status
+```bash
+pnpm --filter @koe/web dev
+```
 
-This repository is being initialized on the `main` branch. The first milestone is a playable local MVP, followed by testnet integration and security review.
+Create `apps/web/.env.local` from `apps/web/.env.example` so the browser can reach the API at `http://localhost:4000`.
 
-## Development
+See [Local development](docs/development.md), [Architecture](docs/architecture.md), [Gameplay MVP](docs/gameplay-mvp.md), and [Roadmap](docs/roadmap.md).
 
-The repository will receive app, API, contract, schema, and deployment work in staged commits. See [Architecture](docs/architecture.md) and [Roadmap](docs/roadmap.md).
+## Blockchain
 
-## Security
+Target network: Robinhood Chain Testnet (chain ID `46630`), gas token ETH. Contract deployment is explicitly testnet-only. See [testnet setup](docs/robinhood-testnet.md) and [contract instructions](contracts/README.md).
 
-Never commit private keys, seed phrases, production credentials, or real user secrets. Use environment variables and GitHub Actions secrets. Use a dedicated test wallet on testnet. All contracts and reward flows require review before mainnet use.
+## Important launch blockers
+
+This repository is an MVP foundation, **not a production-ready or fully launched game**. Wallet signature authentication and authorization, full gameplay systems (placement, timers, combat, multiplayer), admin tooling, anti-cheat review, full integration testing, deployment infrastructure, independent security audit, final tokenomics and legal review remain outstanding.
+
+The NFT public sale and $10 mint are disabled. The reward contract pays only from tokens already funded into it. The default `mUSDT` is a test mock, not USDT and has no real-world value. No mainnet deployment or real-money payout is enabled.
+
+Never commit private keys, seed phrases, wallet exports, or production secrets. Never use a real wallet key in local development; use a dedicated test wallet and protected CI secrets.
