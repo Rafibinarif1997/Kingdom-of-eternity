@@ -146,7 +146,7 @@ export default function Home() {
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/buildings`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ buildingCode: option.code, x: option.x, y: option.y, idempotencyKey: crypto.randomUUID() })
+          body: JSON.stringify({ buildingCode: option.code, x: 1 + (buildings.length % 9), y: 1 + (Math.floor(buildings.length / 9) % 7), idempotencyKey: crypto.randomUUID() })
         });
         const result = await response.json();
         if (!response.ok) {
