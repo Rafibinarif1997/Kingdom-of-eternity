@@ -14,8 +14,14 @@ async function main() {
   await nft.waitForDeployment();
   const token = await hre.ethers.deployContract("KingToken", [owner]);
   await token.waitForDeployment();
-  const rewardTokenAddress = process.env.REWARD_TOKEN_ADDRESS;
-  if (!rewardTokenAddress || !hre.ethers.isAddress(rewardTokenAddress)) throw new Error("Set REWARD_TOKEN_ADDRESS to a verified testnet reward token. Do not assume a USDT contract address.");
+  let rewardTokenAddress = process.env.REWARD_TOKEN_ADDRESS;
+  if (rewardTokenAddress && !hre.ethers.isAddress(rewardTokenAddress)) throw new Error("REWARD_TOKEN_ADDRESS is not a valid address.");
+  if (!rewardTokenAddress) {
+    const mock = await hre.ethers.deployContract("MockUSDT", [owner]);
+    await mock.waitForDeployment();
+    rewardTokenAddress = await mock.getAddress();
+    console.log("Using test-only mUSDT mock. It is not real USDT and has no real-world value.");
+  }
   const distributor = await hre.ethers.deployContract("FundedRewardDistributor", [owner, rewardTokenAddress]);
   await distributor.waitForDeployment();
 
