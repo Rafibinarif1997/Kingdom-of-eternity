@@ -10,7 +10,8 @@ const initialResources: Resource[] = [
   { name: "Wood", amount: 420, rate: 12, icon: "🪵" },
   { name: "Stone", amount: 280, rate: 8, icon: "🪨" },
   { name: "Food", amount: 650, rate: 18, icon: "🌾" },
-  { name: "Iron", amount: 95, rate: 3, icon: "⛓️" }
+  { name: "Iron", amount: 95, rate: 3, icon: "⛓️" },
+  { name: "Gold", amount: 0, rate: 0, icon: "🪙" }
 ];
 
 const initialBuildings: Building[] = [
