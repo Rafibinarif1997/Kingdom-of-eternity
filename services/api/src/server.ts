@@ -80,15 +80,19 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
       food: buildings.rows.filter(b => b.building_code === "farm").reduce((s,b) => s + 18 * Number(b.level),0),
       iron: buildings.rows.filter(b => b.building_code === "iron_mine").reduce((s,b) => s + 3 * Number(b.level),0)
     };
+    const storageRows = await client.query("SELECT level FROM buildings WHERE kingdom_id=$1 AND building_code='storage' AND status='active'", [params.data.kingdomId]);
+    const capacity = 5_000 + storageRows.rows.reduce((sum, row) => sum + Number(row.level) * 1_000, 0);
     const output: Record<string, number> = {};
     for (const row of balances.rows) {
       const code = String(row.resource_code);
       const gain = Math.max(0, Math.floor((rates[code] ?? 0) * elapsedHours));
       if (!gain) continue;
-      const after = Number(row.balance) + gain;
+      const after = Math.min(capacity, Number(row.balance) + gain);
+      const actualGain = after - Number(row.balance);
+      if (actualGain <= 0) continue;
       await client.query("UPDATE resource_balances SET balance=$1,updated_at=now() WHERE kingdom_id=$2 AND resource_code=$3", [after, params.data.kingdomId, code]);
-      await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,idempotency_key) VALUES($1,$2,$3,$4,'manual_collect',$5)", [params.data.kingdomId, code, gain, after, `${body.data.idempotencyKey}:${code}`]);
-      output[code] = gain;
+      await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,idempotency_key) VALUES($1,$2,$3,$4,'manual_collect',$5)", [params.data.kingdomId, code, actualGain, after, `${body.data.idempotencyKey}:${code}`]);
+      output[code] = actualGain;
     }
     await client.query("UPDATE kingdoms SET last_collected_at=now(),updated_at=now() WHERE id=$1", [params.data.kingdomId]);\n    return { replayed: false, collected: output, elapsedHours };
   });
@@ -101,6 +105,8 @@ app.post("/v1/kingdoms/:kingdomId/upgrade", async (request, reply) => {
   const body = upgradeSchema.safeParse(request.body);
   if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_input" });
   const result = await transaction(async (client) => {
+    const kingdomLock = await client.query("SELECT id FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
+    if (!kingdomLock.rowCount) return { error: "building_not_found" as const };
     const building = await client.query("SELECT id,building_code,level FROM buildings WHERE id=$1 AND kingdom_id=$2 FOR UPDATE", [body.data.buildingId, params.data.kingdomId]);
     if (!building.rowCount) return { error: "building_not_found" as const };
     const b = building.rows[0]!;
@@ -131,6 +137,6 @@ app.setErrorHandler((error, _request, reply) => {
   reply.code(500).send({ error: "internal_server_error", requestId: randomUUID() });
 });
 
+app.addHook("onClose", async () => { await pool.end(); });
 const port = Number(process.env.PORT ?? 4000);
 await app.listen({ port, host: "0.0.0.0" });
-app.addHook("onClose", async () => { await pool.end(); });
