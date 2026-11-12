@@ -100,3 +100,9 @@ CREATE TABLE audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX audit_events_created_idx ON audit_events (created_at DESC);
+
+INSERT INTO missions (mission_code,title,description,requirements,rewards)
+VALUES
+  ('first_upgrade','Strengthen the realm','Upgrade any building in your kingdom','{"upgrades":1}'::jsonb,'{"experience":50}'::jsonb),
+  ('collect_once','Gather your first supplies','Collect at least one hour of kingdom production','{"collections":1}'::jsonb,'{"experience":25}'::jsonb)
+ON CONFLICT (mission_code) DO NOTHING;
