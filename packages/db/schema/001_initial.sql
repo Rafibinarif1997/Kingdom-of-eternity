@@ -49,6 +49,7 @@ CREATE TABLE buildings (
   upgrade_started_at TIMESTAMPTZ,
   upgrade_finishes_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (kingdom_id, grid_x, grid_y)
 );
 
