@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.cache/
+.turbo/
+artifacts/
+cache/
+broadcast/
+typechain-types/
