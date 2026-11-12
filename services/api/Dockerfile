@@ -2,6 +2,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json ./
+COPY pnpm-workspace.yaml ./
 COPY services/api/package.json services/api/package.json
 RUN pnpm install --no-frozen-lockfile
 COPY services/api services/api
