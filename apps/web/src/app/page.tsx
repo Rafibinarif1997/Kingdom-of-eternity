@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Resource = { name: string; amount: number; rate: number; icon: string };
 type Building = { id: string | number; name: string; level: number; icon: string; description: string };
+type Mission = { mission_code: string; title: string; description: string; status: string };
 
 const initialResources: Resource[] = [
   { name: "Wood", amount: 420, rate: 12, icon: "🪵" },
@@ -34,6 +35,11 @@ export default function Home() {
   const [tick, setTick] = useState(0);
   const [apiStatus, setApiStatus] = useState("local prototype");
   const [kingdomId, setKingdomId] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [missions, setMissions] = useState<Mission[]>([
+    { mission_code: "first_upgrade", title: "Strengthen the realm", description: "Upgrade any building in your kingdom", status: "available" },
+    { mission_code: "collect_once", title: "Gather your first supplies", description: "Collect at least one hour of production", status: "available" }
+  ]);
 
   useEffect(() => {
     const api = process.env.NEXT_PUBLIC_API_URL;
@@ -59,6 +65,13 @@ export default function Home() {
         const data = await response.json();
         if (cancelled) return;
         setKingdomId(id);
+        const ownerId = data.kingdom.player_id as string;
+        setPlayerId(ownerId);
+        const missionResponse = await fetch(`${api}/v1/players/${ownerId}/missions`);
+        if (missionResponse.ok) {
+          const missionData = await missionResponse.json();
+          setMissions(missionData.missions ?? []);
+        }
         setResources((current) => current.map((r) => ({
           ...r,
           amount: Number(data.resources.find((x: { resource_code: string; balance: string | number }) => x.resource_code === r.name.toLowerCase())?.balance ?? r.amount)
@@ -97,6 +110,10 @@ export default function Home() {
         }
         setResources((current) => current.map((r) => ({ ...r, amount: r.amount + Number(data.collected?.[r.name.toLowerCase()] ?? 0) })));
         setNotice("Production collected from your server kingdom.");
+        if (playerId) {
+          const missionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/players/${playerId}/missions`);
+          if (missionResponse.ok) setMissions((await missionResponse.json()).missions ?? []);
+        }
       } catch {
         setNotice("Server collection failed. Please try again.");
         return;
@@ -127,6 +144,10 @@ export default function Home() {
         })));
         setBuildings((current) => current.map((b) => b.id === building.id ? { ...b, level: result.newLevel } : b));
         setNotice(`${building.name} upgraded to level ${result.newLevel}.`);
+        if (playerId) {
+          const missionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/players/${playerId}/missions`);
+          if (missionResponse.ok) setMissions((await missionResponse.json()).missions ?? []);
+        }
         return;
       } catch {
         setNotice("Server upgrade failed. Please try again.");
@@ -182,7 +203,7 @@ export default function Home() {
         <div className="main-panel">
           <div className="panel-heading"><div><div className="eyebrow">KINGDOM MANAGEMENT</div><h2>{selected === "Overview" ? "Your domain" : selected}</h2></div><span className="level-pill">✦ &nbsp; LEVEL 01</span></div>
           <div className="notice"><span>{notice}</span><span className="api-status">{apiStatus === "server connected" ? "● SERVER SYNCED" : "● LOCAL PREVIEW"}</span></div>
-          {selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
+          {selected === "Missions" ? <div className="mission-list">{missions.map((mission) => <article className="mission-card" key={mission.mission_code}><div className="mission-mark">{mission.status === "completed" ? "✓" : "✧"}</div><div><h3>{mission.title}</h3><p>{mission.description}</p><small>{mission.status.toUpperCase()}</small></div></article>)}</div> : selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
             {buildings.map((building) => <article className="building-card" key={building.id}><div className="building-art">{building.icon}<span>LVL {building.level}</span></div><div className="building-info"><h3>{building.name}</h3><p>{building.description}</p><button onClick={() => upgrade(building)}>UPGRADE <span>· {100 * building.level} 🪵 / {60 * building.level} 🪨</span></button></div></article>)}
           </div> : <div className="empty-state"><span>✧</span><h3>{selected} is on the roadmap</h3><p>This feature will be added as the playable MVP grows.</p></div>}
         </div>
