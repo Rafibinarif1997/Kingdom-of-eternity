@@ -14,7 +14,7 @@ async function main() {
   await nft.waitForDeployment();
   const token = await hre.ethers.deployContract("KingToken", [owner]);
   await token.waitForDeployment();
-  const distributor = await hre.ethers.deployContract("FundedRewardDistributor", [owner, await token.getAddress()]);
+  const rewardTokenAddress = process.env.REWARD_TOKEN_ADDRESS;\n  if (!rewardTokenAddress || !hre.ethers.isAddress(rewardTokenAddress)) throw new Error("Set REWARD_TOKEN_ADDRESS to a verified testnet reward token. Do not assume a USDT contract address.");\n  const distributor = await hre.ethers.deployContract("FundedRewardDistributor", [owner, rewardTokenAddress]);
   await distributor.waitForDeployment();
 
   console.log(JSON.stringify({
