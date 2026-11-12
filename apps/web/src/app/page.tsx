@@ -1,6 +1,11 @@
 "use client";
 
-import IsometricKingdom from "../components/IsometricKingdom";
+import dynamic from "next/dynamic";
+
+const IsometricKingdom = dynamic(() => import("../components/IsometricKingdom"), {
+  ssr: false,
+  loading: () => <div className="isometric-loading">Loading kingdom map…</div>
+});
 import { useEffect, useMemo, useState } from "react";
 
 type Resource = { name: string; amount: number; rate: number; icon: string };
