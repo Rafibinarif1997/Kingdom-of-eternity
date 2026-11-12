@@ -26,6 +26,7 @@ CREATE TABLE kingdoms (
   name VARCHAR(40) NOT NULL,
   level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
   experience BIGINT NOT NULL DEFAULT 0 CHECK (experience >= 0),
+  last_collected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
