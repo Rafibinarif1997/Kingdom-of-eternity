@@ -7,7 +7,10 @@
     "dev": "pnpm --filter @koe/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "dev:api": "pnpm --filter @koe/api dev",
+    "test:contracts": "pnpm --filter @koe/contracts test",
+    "build:contracts": "pnpm --filter @koe/contracts build"
   },
   "devDependencies": {
     "typescript": "^5.7.3"
