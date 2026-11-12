@@ -1,273 +1,49 @@
 "use client";
-
-import dynamic from "next/dynamic";
-
-const IsometricKingdom = dynamic(() => import("../components/IsometricKingdom"), {
-  ssr: false,
-  loading: () => <div className="isometric-loading">Loading kingdom map…</div>
-});
-import { useEffect, useMemo, useState } from "react";
-
-type Resource = { name: string; amount: number; rate: number; icon: string };
-type Building = { id: string | number; name: string; level: number; icon: string; description: string };
-type Mission = { mission_code: string; title: string; description: string; status: string };
-type BuildOption = { code: string; name: string; icon: string; wood: number; stone: number; x: number; y: number };
-
-const initialResources: Resource[] = [
-  { name: "Wood", amount: 420, rate: 12, icon: "🪵" },
-  { name: "Stone", amount: 280, rate: 8, icon: "🪨" },
-  { name: "Food", amount: 650, rate: 18, icon: "🌾" },
-  { name: "Iron", amount: 95, rate: 3, icon: "⛓️" },
-  { name: "Gold", amount: 0, rate: 0, icon: "🪙" }
-];
-
-const buildOptions: BuildOption[] = [
-  { code: "farm", name: "Farm", icon: "🌾", wood: 120, stone: 50, x: 2, y: 2 },
-  { code: "lumber_mill", name: "Lumber Mill", icon: "🪵", wood: 150, stone: 40, x: 8, y: 2 },
-  { code: "stone_mine", name: "Stone Mine", icon: "⛏️", wood: 100, stone: 80, x: 2, y: 6 },
-  { code: "iron_mine", name: "Iron Mine", icon: "⚒️", wood: 200, stone: 150, x: 8, y: 6 },
-  { code: "storage", name: "Storage", icon: "📦", wood: 180, stone: 180, x: 5, y: 7 },
-  { code: "barracks", name: "Barracks", icon: "🛡️", wood: 250, stone: 200, x: 9, y: 4 }
-];
-
-const initialBuildings: Building[] = [
-  { id: 1, name: "Castle", level: 1, icon: "🏰", description: "The heart of your kingdom" },
-  { id: 2, name: "Farm", level: 2, icon: "🌾", description: "Produces food every hour" },
-  { id: 3, name: "Lumber Mill", level: 1, icon: "🪵", description: "Produces timber for construction" },
-  { id: 4, name: "Stone Mine", level: 1, icon: "⛏️", description: "Quarries stone from the hills" }
-];
-
-export default function Home() {
-  const [resources, setResources] = useState(initialResources);
-  const [buildings, setBuildings] = useState(initialBuildings);
-  const [selected, setSelected] = useState("Overview");
-  const [notice, setNotice] = useState("Your kingdom awaits, Commander.");
-  const [tick, setTick] = useState(0);
-  const [apiStatus, setApiStatus] = useState("local prototype");
-  const [kingdomId, setKingdomId] = useState<string | null>(null);
-  const [playerId, setPlayerId] = useState<string | null>(null);
-  const [missions, setMissions] = useState<Mission[]>([
-    { mission_code: "first_upgrade", title: "Strengthen the realm", description: "Upgrade any building in your kingdom", status: "available" },
-    { mission_code: "collect_once", title: "Gather your first supplies", description: "Collect at least one hour of production", status: "available" }
-  ]);
-
-  useEffect(() => {
-    const api = process.env.NEXT_PUBLIC_API_URL;
-    if (!api) return;
-    let cancelled = false;
-    const sync = async () => {
-      try {
-        const health = await fetch(`${api}/health`);
-        if (!health.ok) throw new Error("API unavailable");
-        let id = window.localStorage.getItem("koe.kingdomId");
-        if (!id) {
-          const created = await fetch(`${api}/v1/players`, {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ displayName: "Commander", kingdomName: "Dawnreach" })
-          });
-          if (!created.ok) throw new Error("Could not create starter kingdom");
-          const createdData = await created.json();
-          id = createdData.kingdomId as string;
-          window.localStorage.setItem("koe.kingdomId", id);
-        }
-        const response = await fetch(`${api}/v1/kingdoms/${id}`);
-        if (!response.ok) throw new Error("Could not load kingdom");
-        const data = await response.json();
-        if (cancelled) return;
-        setKingdomId(id);
-        const ownerId = data.kingdom.player_id as string;
-        setPlayerId(ownerId);
-        const missionResponse = await fetch(`${api}/v1/players/${ownerId}/missions`);
-        if (missionResponse.ok) {
-          const missionData = await missionResponse.json();
-          setMissions(missionData.missions ?? []);
-        }
-        setResources((current) => current.map((r) => ({
-          ...r,
-          amount: Number(data.resources.find((x: { resource_code: string; balance: string | number }) => x.resource_code === r.name.toLowerCase())?.balance ?? r.amount)
-        })));
-        const names: Record<string, string> = { castle: "Castle", farm: "Farm", lumber_mill: "Lumber Mill", stone_mine: "Stone Mine", iron_mine: "Iron Mine", storage: "Storage", barracks: "Barracks" };
-        const icons: Record<string, string> = { castle: "🏰", farm: "🌾", lumber_mill: "🪵", stone_mine: "⛏️", iron_mine: "⚒️", storage: "📦", barracks: "🛡️" };
-        const descriptions: Record<string, string> = { castle: "The heart of your kingdom", farm: "Produces food every hour", lumber_mill: "Produces timber for construction", stone_mine: "Quarries stone from the hills", iron_mine: "Extracts iron ore", storage: "Protects stored resources", barracks: "Trains your future army" };
-        setBuildings(data.buildings.map((b: { id: string; building_code: string; level: number }) => ({
-          id: b.id, name: names[b.building_code] ?? b.building_code, level: Number(b.level),
-          icon: icons[b.building_code] ?? "🏗️", description: descriptions[b.building_code] ?? "Kingdom structure"
-        })));
-        setApiStatus("server connected");
-        setNotice("Your kingdom is synced with the game server.");
-      } catch {
-        if (!cancelled) setApiStatus("local prototype");
-      }
-    };
-    void sync();
-    return () => { cancelled = true; };
-  }, []);
-
-  const totalPower = useMemo(() => buildings.reduce((sum, b) => sum + b.level * 125, 0), [buildings]);
-
-  async function collect() {
-    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/collect`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ idempotencyKey: crypto.randomUUID() })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "Collection failed");
-        if (data.nextCollectionInSeconds) {
-          setNotice("Production is still accruing. Try again when the next hour completes.");
-          return;
-        }
-        setResources((current) => current.map((r) => ({ ...r, amount: r.amount + Number(data.collected?.[r.name.toLowerCase()] ?? 0) })));
-        setNotice("Production collected from your server kingdom.");
-        if (playerId) {
-          const missionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/players/${playerId}/missions`);
-          if (missionResponse.ok) setMissions((await missionResponse.json()).missions ?? []);
-        }
-      } catch {
-        setNotice("Server collection failed. Please try again.");
-        return;
-      }
-    } else {
-      setResources((current) => current.map((r) => ({ ...r, amount: r.amount + r.rate })));
-      setNotice("Local preview collection only.");
-    }
-    setTick((v) => v + 1);
-  }
-
-  async function construct(option: BuildOption) {
-    const wood = resources.find((r) => r.name === "Wood")?.amount ?? 0;
-    const stone = resources.find((r) => r.name === "Stone")?.amount ?? 0;
-    if (wood < option.wood || stone < option.stone) {
-      setNotice(`Not enough resources. ${option.name} needs ${option.wood} wood and ${option.stone} stone.`);
-      return;
-    }
-    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/buildings`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ buildingCode: option.code, x: 1 + (buildings.length % 9), y: 1 + (Math.floor(buildings.length / 9) % 7), idempotencyKey: crypto.randomUUID() })
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          setNotice(result.error === "tile_occupied" ? "That land tile is already occupied. Choose another location." : "Construction could not be completed.");
-          return;
-        }
-        setBuildings((current) => [...current, {
-          id: result.building.id, name: option.name, level: 1, icon: option.icon, description: "New kingdom structure"
-        }]);
-        setResources((current) => current.map((r) =>
-          r.name === "Wood" ? { ...r, amount: r.amount - option.wood } :
-          r.name === "Stone" ? { ...r, amount: r.amount - option.stone } : r
-        ));
-        setNotice(`${option.name} constructed in your kingdom.`);
-      } catch {
-        setNotice("Server construction failed. Please try again.");
-      }
-      return;
-    }
-    setResources((current) => current.map((r) =>
-      r.name === "Wood" ? { ...r, amount: r.amount - option.wood } :
-      r.name === "Stone" ? { ...r, amount: r.amount - option.stone } : r
-    ));
-    setBuildings((current) => [...current, { id: Date.now(), name: option.name, level: 1, icon: option.icon, description: "New local preview structure" }]);
-    setNotice(`${option.name} added to the local preview.`);
-  }
-
-  async function upgrade(building: Building) {
-    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/upgrade`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ buildingId: building.id, idempotencyKey: crypto.randomUUID() })
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          setNotice(result.error === "insufficient_resources" ? "Not enough resources for this upgrade." : "Upgrade could not be completed.");
-          return;
-        }
-        const refreshed = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}`);
-        const data = await refreshed.json();
-        setResources((current) => current.map((r) => ({
-          ...r, amount: Number(data.resources.find((x: { resource_code: string; balance: string | number }) => x.resource_code === r.name.toLowerCase())?.balance ?? r.amount)
-        })));
-        setBuildings((current) => current.map((b) => b.id === building.id ? { ...b, level: result.newLevel } : b));
-        setNotice(`${building.name} upgraded to level ${result.newLevel}.`);
-        if (playerId) {
-          const missionResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/players/${playerId}/missions`);
-          if (missionResponse.ok) setMissions((await missionResponse.json()).missions ?? []);
-        }
-        return;
-      } catch {
-        setNotice("Server upgrade failed. Please try again.");
-        return;
-      }
-    }
-    const woodCost = 100 * building.level;
-    const stoneCost = 60 * building.level;
-    const wood = resources.find((r) => r.name === "Wood")?.amount ?? 0;
-    const stone = resources.find((r) => r.name === "Stone")?.amount ?? 0;
-    if (wood < woodCost || stone < stoneCost) {
-      setNotice(`Not enough resources. Upgrade needs ${woodCost} wood and ${stoneCost} stone.`);
-      return;
-    }
-    setResources((current) => current.map((r) =>
-      r.name === "Wood" ? { ...r, amount: r.amount - woodCost } :
-      r.name === "Stone" ? { ...r, amount: r.amount - stoneCost } : r
-    ));
-    setBuildings((current) => current.map((b) => b.id === building.id ? { ...b, level: b.level + 1 } : b));
-    setNotice(`${building.name} upgraded to level ${building.level + 1} in this local prototype.`);
-  }
-
-  const nav = ["Overview", "Buildings", "Missions", "Army", "Kingdom"];
-
-  return (
-    <main className="game-shell">
-      <header className="topbar">
-        <a className="brand" href="#"><span className="brand-mark">♜</span><span>KINGDOMS <b>OF ETERNITY</b></span></a>
-        <div className="season">SEASON 01 <span>·</span> THE FIRST AGE</div>
-        <button className="profile"><span className="avatar">♛</span><span>Commander</span><span className="online-dot" /></button>
-      </header>
-
-      <section className="hero">
-        <div className="hero-copy">
-          <div className="eyebrow"><span className="eyebrow-line" /> YOUR LEGACY BEGINS</div>
-          <h1>Build an empire.<br /><em>Forge eternity.</em></h1>
-          <p>Raise your walls, command your resources, and turn a humble settlement into a kingdom that will stand through the ages.</p>
-          <div className="hero-actions"><button className="primary-btn" onClick={() => { setSelected("Buildings"); setNotice("Choose a building to strengthen your kingdom."); }}>MANAGE KINGDOM <span>↗</span></button><span className="hero-note">✦ &nbsp; YOUR STORY, YOUR KINGDOM</span></div>
-        </div>
-        <div className="hero-art"><IsometricKingdom /></div>
-      </section>
-
-      <section className="resource-strip">
-        {resources.map((r) => <div className="resource" key={r.name}><span className="resource-icon">{r.icon}</span><div><small>{r.name.toUpperCase()}</small><strong>{r.amount.toLocaleString()}</strong><span className="rate">↗ +{r.rate}/hr</span></div></div>)}
-        <button className="collect-btn" onClick={collect}>COLLECT <span>✦</span></button>
-      </section>
-
-      <nav className="section-nav" aria-label="Kingdom navigation">
-        {nav.map((item) => <button key={item} className={selected === item ? "nav-item active" : "nav-item"} onClick={() => setSelected(item)}>{item}</button>)}
-      </nav>
-
-      <section className="content-grid">
-        <div className="main-panel">
-          <div className="panel-heading"><div><div className="eyebrow">KINGDOM MANAGEMENT</div><h2>{selected === "Overview" ? "Your domain" : selected}</h2></div><span className="level-pill">✦ &nbsp; LEVEL 01</span></div>
-          <div className="notice"><span>{notice}</span><span className="api-status">{apiStatus === "server connected" ? "● SERVER SYNCED" : "● LOCAL PREVIEW"}</span></div>
-          {selected === "Buildings" && <div className="build-options">{buildOptions.map((option) => <button className="build-option" key={option.code} onClick={() => construct(option)}><span>{option.icon}</span><b>{option.name}</b><small>{option.wood} 🪵 · {option.stone} 🪨</small></button>)}</div>}{selected === "Missions" ? <div className="mission-list">{missions.map((mission) => <article className="mission-card" key={mission.mission_code}><div className="mission-mark">{mission.status === "completed" ? "✓" : "✧"}</div><div><h3>{mission.title}</h3><p>{mission.description}</p><small>{mission.status.toUpperCase()}</small></div></article>)}</div> : selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
-            {buildings.map((building) => <article className="building-card" key={building.id}><div className="building-art">{building.icon}<span>LVL {building.level}</span></div><div className="building-info"><h3>{building.name}</h3><p>{building.description}</p><button onClick={() => upgrade(building)}>UPGRADE <span>· {100 * building.level} 🪵 / {60 * building.level} 🪨</span></button></div></article>)}
-          </div> : <div className="empty-state"><span>✧</span><h3>{selected} is on the roadmap</h3><p>This feature will be added as the playable MVP grows.</p></div>}
-        </div>
-        <aside className="side-panel">
-          <div className="side-heading"><span>YOUR COMMAND</span><b>✧</b></div>
-          <div className="power-card"><small>KINGDOM POWER</small><strong>{totalPower.toLocaleString()}</strong><span>✦ &nbsp; Growing stronger</span></div>
-          <div className="side-stat"><span>Buildings</span><b>{buildings.length}</b></div>
-          <div className="side-stat"><span>Production collections</span><b>{tick}</b></div>
-          <div className="side-divider" />
-          <div className="quest-label">DAILY OBJECTIVE</div>
-          <div className="quest"><span className="quest-icon">⚒</span><div><b>Strengthen the realm</b><small>Upgrade any building</small><div className="progress"><i style={{ width: `${Math.min(100, (buildings.reduce((s,b) => s + b.level, 0) - 5) * 20)}%` }} /></div></div></div>
-          <div className="side-foot">✦ &nbsp; THE FIRST AGE HAS JUST BEGUN</div>
-        </aside>
-      </section>
-      <footer>© 2026 KINGDOMS OF ETERNITY <span>AN EMPIRE IS BUILT ONE DECISION AT A TIME.</span></footer>
-    </main>
-  );
+import {useEffect,useMemo,useState} from "react";
+type Kind="keep"|"farm"|"lumber"|"quarry"|"iron"|"barracks"|"tower"|"cottage";
+type Building={id:number;kind:Kind;x:number;y:number;level:number};
+type GameSave={resources:Record<string,number>;buildings:Building[];troops:number;wins:number;last:number};
+const defs:Record<Kind,{name:string;icon:string;wood:number;stone:number;food:number;rate?:string;desc:string}>={
+ keep:{name:"Keep",icon:"🏰",wood:0,stone:0,food:0,desc:"Seat of your power"},
+ farm:{name:"Farm",icon:"🌾",wood:80,stone:25,food:0,rate:"food",desc:"Feeds your growing population"},
+ lumber:{name:"Lumber Camp",icon:"🪓",wood:100,stone:20,food:0,rate:"wood",desc:"Produces timber"},
+ quarry:{name:"Stone Quarry",icon:"⛏️",wood:90,stone:45,food:0,rate:"stone",desc:"Produces building stone"},
+ iron:{name:"Iron Mine",icon:"⚒️",wood:150,stone:100,food:0,rate:"iron",desc:"Extracts iron ore"},
+ barracks:{name:"Barracks",icon:"🛡️",wood:180,stone:120,food:80,desc:"Trains your royal guard"},
+ tower:{name:"Watchtower",icon:"🗼",wood:120,stone:160,food:0,desc:"Defends your settlement"},
+ cottage:{name:"Cottage",icon:"🏡",wood:70,stone:35,food:0,desc:"A home for settlers"}
+};
+const initial:GameSave={resources:{wood:360,stone:260,food:500,iron:80,gold:35},buildings:[{id:1,kind:"keep",x:4,y:4,level:1},{id:2,kind:"farm",x:2,y:5,level:1},{id:3,kind:"lumber",x:6,y:3,level:1},{id:4,kind:"quarry",x:6,y:6,level:1}],troops:8,wins:0,last:Date.now()};
+const res=[["wood","🪵","Timber"],["stone","🪨","Stone"],["food","🌾","Food"],["iron","⛓️","Iron"],["gold","🪙","Gold"]];
+const number=(n:number)=>Math.floor(n).toLocaleString();
+export default function Home(){
+ const [game,setGame]=useState<GameSave>(initial),[ready,setReady]=useState(false),[tab,setTab]=useState("Realm"),[selected,setSelected]=useState<{x:number;y:number}|null>(null),[placing,setPlacing]=useState<Kind|null>(null),[notice,setNotice]=useState("Welcome, Commander. Your kingdom awaits."),[busy,setBusy]=useState(false);
+ useEffect(()=>{try{const raw=localStorage.getItem("koe.playable.v3");if(raw){const v=JSON.parse(raw) as GameSave;const elapsed=Math.min(86400,Math.floor((Date.now()-v.last)/1000));for(const b of v.buildings){const r=defs[b.kind].rate;if(r)v.resources[r]=(v.resources[r]||0)+elapsed*b.level*.12;}setGame({...v,last:Date.now()});}}catch{}setReady(true);},[]);
+ useEffect(()=>{if(!ready)return;const id=setInterval(()=>setGame(v=>{const n={...v,resources:{...v.resources},last:Date.now()};for(const b of v.buildings){const r=defs[b.kind].rate;if(r)n.resources[r]=(n.resources[r]||0)+b.level*.12;}return n;}),1000);return()=>clearInterval(id);},[ready]);
+ useEffect(()=>{if(ready)localStorage.setItem("koe.playable.v3",JSON.stringify(game));},[game,ready]);
+ const rates=useMemo(()=>game.buildings.reduce((a,b)=>{const r=defs[b.kind].rate;if(r)a[r]=(a[r]||0)+b.level*.12;return a;},{} as Record<string,number>),[game.buildings]);
+ const at=(x:number,y:number)=>game.buildings.find(b=>b.x===x&&b.y===y);
+ const current=selected?at(selected.x,selected.y):undefined;
+ const power=game.buildings.reduce((a,b)=>a+b.level*35,0)+game.troops*10+game.wins*25;
+ function build(x:number,y:number){if(!placing)return;if(at(x,y)){setNotice("That plot is occupied. Choose an empty tile.");return;}const d=defs[placing];if(game.resources.wood<d.wood||game.resources.stone<d.stone||game.resources.food<d.food){setNotice("Not enough resources for this building.");return;}setGame(v=>({...v,resources:{...v.resources,wood:v.resources.wood-d.wood,stone:v.resources.stone-d.stone,food:v.resources.food-d.food},buildings:[...v.buildings,{id:Date.now(),kind:placing,x,y,level:1}]}));setNotice(d.name+" completed!");setSelected({x,y});setPlacing(null);}
+ function upgrade(b:Building){const w=90*b.level,s=65*b.level;if(game.resources.wood<w||game.resources.stone<s){setNotice("Upgrade needs "+w+" timber and "+s+" stone.");return;}setGame(v=>({...v,resources:{...v.resources,wood:v.resources.wood-w,stone:v.resources.stone-s},buildings:v.buildings.map(x=>x.id===b.id?{...x,level:x.level+1}:x)}));setNotice(defs[b.kind].name+" upgraded to level "+(b.level+1)+".");}
+ function train(){if(game.resources.food<100||game.resources.iron<15){setNotice("Training costs 100 food and 15 iron.");return;}setGame(v=>({...v,resources:{...v.resources,food:v.resources.food-100,iron:v.resources.iron-15},troops:v.troops+5}));setNotice("Five soldiers joined your army.");}
+ function raid(){if(busy||game.troops<5)return;setBusy(true);setTimeout(()=>{const win=game.troops*10+power>=160||Math.random()>.3;setGame(v=>({...v,troops:Math.max(0,v.troops-(win?2:4)),wins:v.wins+(win?1:0),resources:{...v.resources,gold:v.resources.gold+(win?45:8),iron:v.resources.iron+(win?12:0),food:v.resources.food+(win?35:0)}}));setNotice(win?"Victory! Goblin Camp defeated. Loot added to your treasury.":"Defeat. Your soldiers retreat. Train more troops and try again.");setBusy(false);},700);}
+ if(!ready)return <main className="game-shell"><div className="loading-game">RESTORING YOUR KINGDOM…</div></main>;
+ const quests=[["A place to call home","Build a Cottage",game.buildings.some(b=>b.kind==="cottage"),"50 gold"],["Prepare the guard","Train 10 soldiers",game.troops>=10,"75 gold"],["First victory","Win a Goblin Camp raid",game.wins>0,"100 gold"]];
+ return <main className="game-shell">
+ <header className="topbar"><a className="brand" href="#">♜ KINGDOMS <b>OF ETERNITY</b></a><div className="season">THE FIRST AGE · DAY 01</div><div className="commander">♛ COMMANDER</div></header>
+ <section className="game-heading"><div><span className="eyebrow">THE FRONTIER AWAITS</span><h1>DAWNREACH <em>KEEP</em></h1><p>Build your settlement. Raise an army. Claim your place in history.</p></div><div className="realm-level"><small>REALM POWER</small><strong>{number(power)}</strong><span>{game.buildings.length} structures · {game.troops} soldiers</span></div></section>
+ <section className="resource-strip">{res.map(([k,icon,label])=><div className="resource" key={k}><span>{icon}</span><div><small>{label.toUpperCase()}</small><b>{number(game.resources[k])}</b><i>{rates[k]?"+"+rates[k].toFixed(1)+"/sec":"—"}</i></div></div>)}</section>
+ <nav className="section-nav">{["Realm","Build","Army","Quests"].map(v=><button key={v} className={tab===v?"active":""} onClick={()=>{setTab(v);setPlacing(null);}}>{v==="Realm"?"🏰":v==="Build"?"⚒":v==="Army"?"🛡":"✧"} {v}</button>)}</nav>
+ <div className="play-layout"><section className="world-panel">
+ <div className="world-head"><div><span className="eyebrow">YOUR KINGDOM · FRONTIER PROVINCE</span><h2>{tab==="Realm"?"The Living Realm":tab==="Build"?"Construction Yard":tab==="Army"?"War Council":"Royal Chronicle"}</h2></div><span className="autosave">● AUTOSAVED</span></div>
+ {(tab==="Realm"||tab==="Build")&&<><div className="hint">{placing?"SELECT AN EMPTY TILE FOR "+defs[placing].name.toUpperCase():"Tap a tile to inspect it. Build structures to grow your realm."}</div><div className="island-scene"><div className="map-grid">{Array.from({length:9},(_,y)=><div className="map-row" key={y}>{Array.from({length:9},(_,x)=>{const b=at(x,y);return <button key={x} onClick={()=>placing?build(x,y):setSelected({x,y})} className={"land-tile "+(selected?.x===x&&selected?.y===y?"picked ":"")+(b?"built":"")} aria-label={b?defs[b.kind].name:"Empty land"}>{b?<><span>{defs[b.kind].icon}</span><small>{defs[b.kind].name}</small><i>Lv.{b.level}</i></>:<span className="tree">{(x*7+y*3)%13===0?"🌲":(x+y)%11===0?"🌿":""}</span>}</button>})}</div>)}</div><div className="scene-caption">🌲 NORTHERN WOODLANDS <span>DAWNREACH PROVINCE ✦</span></div></div><div className="legend">🟩 Empty plot　 🏰 Your buildings　 🟨 Selected plot</div>
+ {tab==="Build"&&<div className="build-dock"><b>CHOOSE A STRUCTURE</b><div className="build-options">{(["farm","lumber","quarry","iron","barracks","tower","cottage"] as Kind[]).map(k=><button className={placing===k?"chosen":""} key={k} onClick={()=>{setPlacing(k);setSelected(null);setNotice("Choose an empty plot for your "+defs[k].name+".");}}><span>{defs[k].icon}</span><b>{defs[k].name}</b><small>🪵{defs[k].wood} · 🪨{defs[k].stone}</small></button>)}</div></div>}
+ {current&&<div className="selected-building"><span>{defs[current.kind].icon}</span><div><b>{defs[current.kind].name} · LEVEL {current.level}</b><small>{defs[current.kind].desc} · Plot {current.x+1},{current.y+1}</small></div><button onClick={()=>upgrade(current)}>UPGRADE · 🪵{90*current.level} 🪨{65*current.level}</button></div>}</>}
+ {tab==="Army"&&<div className="army-view"><div className="army-banner"><span>⚔️</span><div><small>YOUR ROYAL GUARD</small><b>{game.troops} SOLDIERS</b><p>Brave warriors sworn to defend Dawnreach.</p></div></div><div className="army-stats"><div><small>CAMPAIGNS WON</small><b>{game.wins}</b></div><div><small>ARMY STRENGTH</small><b>{game.troops*10}</b></div><div><small>TRAINING COST</small><b>100 🌾 · 15 ⛓️</b></div></div><button className="gold-button" onClick={train}>TRAIN 5 SOLDIERS</button><div className="raid-card"><span className="eyebrow">AVAILABLE EXPEDITION</span><h3>👹 Goblin Camp</h3><p>Drive raiders from the eastern hills. Victory earns gold, iron and food.</p><small>RECOMMENDED: 9+ SOLDIERS</small><button className="gold-button" disabled={busy||game.troops<5} onClick={raid}>{busy?"BATTLE IN PROGRESS…":"⚔ RAID THE CAMP"}</button></div></div>}
+ {tab==="Quests"&&<div className="quest-list">{quests.map(q=><article key={q[0]}><span className={q[2]?"done":""}>{q[2]?"✓":"✧"}</span><div><b>{q[0]}</b><p>{q[1]}</p><small>{q[2]?"COMPLETED":"REWARD: "+q[3]}</small></div></article>)}</div>}
+ <div className="game-message"><b>✧ ROYAL ADVISOR</b>{notice}</div></section>
+ <aside className="right-rail"><div className="rail-card"><span className="eyebrow">REALM OVERVIEW</span><strong>{number(power)}</strong><small>KINGDOM POWER</small><hr/><p>Buildings <b>{game.buildings.length}</b></p><p>Army <b>{game.troops}</b></p><p>Victories <b>{game.wins}</b></p></div><div className="rail-card"><span className="eyebrow">PRODUCTION</span>{res.slice(0,4).map(([k,icon,label])=><p key={k}>{icon} {label}<b>{rates[k]?"+"+rates[k].toFixed(1)+"/s":"—"}</b></p>)}</div><div className="rail-card advisor">📜 <b>THE KING'S ADVISOR</b><p>Build farms and lumber camps first. A strong economy is the foundation of every great kingdom.</p></div><button className="reset-button" onClick={()=>{if(confirm("Erase this local kingdom and start again?")){localStorage.removeItem("koe.playable.v3");setGame(initial);setNotice("A new kingdom rises.");}}}>START A NEW KINGDOM</button></aside></div>
+ <footer>© 2026 KINGDOMS OF ETERNITY <span>YOUR KINGDOM. YOUR LEGACY.</span></footer></main>;
 }
