@@ -3,10 +3,7 @@
 import { useEffect, useRef } from "react";
 import Phaser from "phaser";
 
-type Tile = { x: number; y: number; kind: "grass" | "water" | "path" };
-
 class KingdomScene extends Phaser.Scene {
-  private selectedTile: { x: number; y: number } | null = null;
   private statusText?: Phaser.GameObjects.Text;
   constructor() { super("KingdomScene"); }
 
@@ -14,12 +11,10 @@ class KingdomScene extends Phaser.Scene {
     const width = 11, height = 9, tw = 64, th = 34;
     const originX = this.scale.width / 2;
     const originY = 48;
-    const tiles: Tile[] = [];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const edge = x === 0 || y === 0 || x === width - 1 || y === height - 1;
         const kind = (x === 1 && y > 5) ? "water" : (x > 2 && x < 8 && y === 6) ? "path" : "grass";
-        tiles.push({ x, y, kind });
         const px = originX + (x - y) * tw / 2;
         const py = originY + (x + y) * th / 2;
         const g = this.add.graphics();
@@ -32,7 +27,6 @@ class KingdomScene extends Phaser.Scene {
         }
         const zone = this.add.zone(px, py + th / 2, tw, th).setOrigin(0.5).setInteractive();
         zone.on("pointerdown", () => {
-          this.selectedTile = { x, y };
           this.drawSelection(px, py, tw, th);
           this.statusText?.setText(`LAND TILE  ${x + 1} : ${y + 1}`);
         });
@@ -69,7 +63,7 @@ class KingdomScene extends Phaser.Scene {
       g.fillStyle(0x766c55); g.fillRect(px - 17, py - 38, 34, 38);
       g.fillStyle(0xb5a27b); g.fillRect(px - 22, py - 30, 44, 30);
       g.fillStyle(0x4c4537); g.fillTriangle(px - 22, py - 30, px, py - 52, px + 22, py - 30);
-      g.fillStyle(0x302c25); g.fillRoundedRect(px - 5, py - 16, 10, 16, { tl: 6, tr: 6, bl: 0, br: 0 });
+      g.fillStyle(0x302c25); g.fillRect(px - 5, py - 16, 10, 16);
       g.fillStyle(0x9b8d6b); g.fillRect(px - 25, py - 43, 11, 28); g.fillRect(px + 14, py - 43, 11, 28);
       g.fillStyle(0x66543e); g.fillTriangle(px - 28, py - 43, px - 19, py - 58, px - 11, py - 43); g.fillTriangle(px + 11, py - 43, px + 19, py - 58, px + 28, py - 43);
     } else {
