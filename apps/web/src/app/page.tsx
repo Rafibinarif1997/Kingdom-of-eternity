@@ -26,16 +26,107 @@ export default function Home() {
   const [selected, setSelected] = useState("Overview");
   const [notice, setNotice] = useState("Your kingdom awaits, Commander.");
   const [tick, setTick] = useState(0);
+  const [apiStatus, setApiStatus] = useState("local prototype");
+  const [kingdomId, setKingdomId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const api = process.env.NEXT_PUBLIC_API_URL;
+    if (!api) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const health = await fetch(`${api}/health`);
+        if (!health.ok) throw new Error("API unavailable");
+        let id = window.localStorage.getItem("koe.kingdomId");
+        if (!id) {
+          const created = await fetch(`${api}/v1/players`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ displayName: "Commander", kingdomName: "Dawnreach" })
+          });
+          if (!created.ok) throw new Error("Could not create starter kingdom");
+          const createdData = await created.json();
+          id = createdData.kingdomId as string;
+          window.localStorage.setItem("koe.kingdomId", id);
+        }
+        const response = await fetch(`${api}/v1/kingdoms/${id}`);
+        if (!response.ok) throw new Error("Could not load kingdom");
+        const data = await response.json();
+        if (cancelled) return;
+        setKingdomId(id);
+        setResources((current) => current.map((r) => ({
+          ...r,
+          amount: Number(data.resources.find((x: { resource_code: string; balance: string | number }) => x.resource_code === r.name.toLowerCase())?.balance ?? r.amount)
+        })));
+        const names: Record<string, string> = { castle: "Castle", farm: "Farm", lumber_mill: "Lumber Mill", stone_mine: "Stone Mine", iron_mine: "Iron Mine", storage: "Storage", barracks: "Barracks" };
+        const icons: Record<string, string> = { castle: "🏰", farm: "🌾", lumber_mill: "🪵", stone_mine: "⛏️", iron_mine: "⚒️", storage: "📦", barracks: "🛡️" };
+        const descriptions: Record<string, string> = { castle: "The heart of your kingdom", farm: "Produces food every hour", lumber_mill: "Produces timber for construction", stone_mine: "Quarries stone from the hills", iron_mine: "Extracts iron ore", storage: "Protects stored resources", barracks: "Trains your future army" };
+        setBuildings(data.buildings.map((b: { id: string; building_code: string; level: number }) => ({
+          id: b.id, name: names[b.building_code] ?? b.building_code, level: Number(b.level),
+          icon: icons[b.building_code] ?? "🏗️", description: descriptions[b.building_code] ?? "Kingdom structure"
+        })));
+        setApiStatus("server connected");
+        setNotice("Your kingdom is synced with the game server.");
+      } catch {
+        if (!cancelled) setApiStatus("local prototype");
+      }
+    };
+    void sync();
+    return () => { cancelled = true; };
+  }, []);
 
   const totalPower = useMemo(() => buildings.reduce((sum, b) => sum + b.level * 125, 0), [buildings]);
 
-  function collect() {
-    setResources((current) => current.map((r) => ({ ...r, amount: r.amount + r.rate })));
+  async function collect() {
+    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/collect`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ idempotencyKey: crypto.randomUUID() })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Collection failed");
+        if (data.nextCollectionInSeconds) {
+          setNotice("Production is still accruing. Try again when the next hour completes.");
+          return;
+        }
+        setResources((current) => current.map((r) => ({ ...r, amount: r.amount + Number(data.collected?.[r.name.toLowerCase()] ?? 0) })));
+        setNotice("Production collected from your server kingdom.");
+      } catch {
+        setNotice("Server collection failed. Please try again.");
+        return;
+      }
+    } else {
+      setResources((current) => current.map((r) => ({ ...r, amount: r.amount + r.rate })));
+      setNotice("Local preview collection only.");
+    }
     setTick((v) => v + 1);
-    setNotice("Production collected. Your stores are growing.");
   }
 
-  function upgrade(building: Building) {
+  async function upgrade(building: Building) {
+    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/upgrade`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ buildingId: building.id, idempotencyKey: crypto.randomUUID() })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          setNotice(result.error === "insufficient_resources" ? "Not enough resources for this upgrade." : "Upgrade could not be completed.");
+          return;
+        }
+        const refreshed = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}`);
+        const data = await refreshed.json();
+        setResources((current) => current.map((r) => ({
+          ...r, amount: Number(data.resources.find((x: { resource_code: string; balance: string | number }) => x.resource_code === r.name.toLowerCase())?.balance ?? r.amount)
+        })));
+        setBuildings((current) => current.map((b) => b.id === building.id ? { ...b, level: result.newLevel } : b));
+        setNotice(`${building.name} upgraded to level ${result.newLevel}.`);
+        return;
+      } catch {
+        setNotice("Server upgrade failed. Please try again.");
+        return;
+      }
+    }
     const woodCost = 100 * building.level;
     const stoneCost = 60 * building.level;
     const wood = resources.find((r) => r.name === "Wood")?.amount ?? 0;
