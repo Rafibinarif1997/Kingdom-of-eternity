@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
-import IsometricKingdom from "../components/IsometricKingdom";
+import dynamic from "next/dynamic";
+const IsometricKingdom = dynamic(() => import("../components/IsometricKingdom"), { ssr: false });
 type Kind="keep"|"farm"|"lumber"|"quarry"|"iron"|"barracks"|"tower"|"cottage";
 type Building={id:number;kind:Kind;x:number;y:number;level:number};
 type GameSave={resources:Record<string,number>;buildings:Building[];troops:number;wins:number;last:number};
