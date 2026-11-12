@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 type Resource = { name: string; amount: number; rate: number; icon: string };
 type Building = { id: string | number; name: string; level: number; icon: string; description: string };
 type Mission = { mission_code: string; title: string; description: string; status: string };
+type BuildOption = { code: string; name: string; icon: string; wood: number; stone: number; x: number; y: number };
 
 const initialResources: Resource[] = [
   { name: "Wood", amount: 420, rate: 12, icon: "🪵" },
@@ -18,6 +19,15 @@ const initialResources: Resource[] = [
   { name: "Food", amount: 650, rate: 18, icon: "🌾" },
   { name: "Iron", amount: 95, rate: 3, icon: "⛓️" },
   { name: "Gold", amount: 0, rate: 0, icon: "🪙" }
+];
+
+const buildOptions: BuildOption[] = [
+  { code: "farm", name: "Farm", icon: "🌾", wood: 120, stone: 50, x: 2, y: 2 },
+  { code: "lumber_mill", name: "Lumber Mill", icon: "🪵", wood: 150, stone: 40, x: 8, y: 2 },
+  { code: "stone_mine", name: "Stone Mine", icon: "⛏️", wood: 100, stone: 80, x: 2, y: 6 },
+  { code: "iron_mine", name: "Iron Mine", icon: "⚒️", wood: 200, stone: 150, x: 8, y: 6 },
+  { code: "storage", name: "Storage", icon: "📦", wood: 180, stone: 180, x: 5, y: 7 },
+  { code: "barracks", name: "Barracks", icon: "🛡️", wood: 250, stone: 200, x: 9, y: 4 }
 ];
 
 const initialBuildings: Building[] = [
@@ -125,6 +135,45 @@ export default function Home() {
     setTick((v) => v + 1);
   }
 
+  async function construct(option: BuildOption) {
+    const wood = resources.find((r) => r.name === "Wood")?.amount ?? 0;
+    const stone = resources.find((r) => r.name === "Stone")?.amount ?? 0;
+    if (wood < option.wood || stone < option.stone) {
+      setNotice(`Not enough resources. ${option.name} needs ${option.wood} wood and ${option.stone} stone.`);
+      return;
+    }
+    if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/kingdoms/${kingdomId}/buildings`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ buildingCode: option.code, x: option.x, y: option.y, idempotencyKey: crypto.randomUUID() })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          setNotice(result.error === "tile_occupied" ? "That land tile is already occupied. Choose another location." : "Construction could not be completed.");
+          return;
+        }
+        setBuildings((current) => [...current, {
+          id: result.building.id, name: option.name, level: 1, icon: option.icon, description: "New kingdom structure"
+        }]);
+        setResources((current) => current.map((r) =>
+          r.name === "Wood" ? { ...r, amount: r.amount - option.wood } :
+          r.name === "Stone" ? { ...r, amount: r.amount - option.stone } : r
+        ));
+        setNotice(`${option.name} constructed in your kingdom.`);
+      } catch {
+        setNotice("Server construction failed. Please try again.");
+      }
+      return;
+    }
+    setResources((current) => current.map((r) =>
+      r.name === "Wood" ? { ...r, amount: r.amount - option.wood } :
+      r.name === "Stone" ? { ...r, amount: r.amount - option.stone } : r
+    ));
+    setBuildings((current) => [...current, { id: Date.now(), name: option.name, level: 1, icon: option.icon, description: "New local preview structure" }]);
+    setNotice(`${option.name} added to the local preview.`);
+  }
+
   async function upgrade(building: Building) {
     if (kingdomId && process.env.NEXT_PUBLIC_API_URL) {
       try {
@@ -203,7 +252,7 @@ export default function Home() {
         <div className="main-panel">
           <div className="panel-heading"><div><div className="eyebrow">KINGDOM MANAGEMENT</div><h2>{selected === "Overview" ? "Your domain" : selected}</h2></div><span className="level-pill">✦ &nbsp; LEVEL 01</span></div>
           <div className="notice"><span>{notice}</span><span className="api-status">{apiStatus === "server connected" ? "● SERVER SYNCED" : "● LOCAL PREVIEW"}</span></div>
-          {selected === "Missions" ? <div className="mission-list">{missions.map((mission) => <article className="mission-card" key={mission.mission_code}><div className="mission-mark">{mission.status === "completed" ? "✓" : "✧"}</div><div><h3>{mission.title}</h3><p>{mission.description}</p><small>{mission.status.toUpperCase()}</small></div></article>)}</div> : selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
+          {selected === "Buildings" && <div className="build-options">{buildOptions.map((option) => <button className="build-option" key={option.code} onClick={() => construct(option)}><span>{option.icon}</span><b>{option.name}</b><small>{option.wood} 🪵 · {option.stone} 🪨</small></button>)}</div>}{selected === "Missions" ? <div className="mission-list">{missions.map((mission) => <article className="mission-card" key={mission.mission_code}><div className="mission-mark">{mission.status === "completed" ? "✓" : "✧"}</div><div><h3>{mission.title}</h3><p>{mission.description}</p><small>{mission.status.toUpperCase()}</small></div></article>)}</div> : selected === "Buildings" || selected === "Overview" ? <div className="building-grid">
             {buildings.map((building) => <article className="building-card" key={building.id}><div className="building-art">{building.icon}<span>LVL {building.level}</span></div><div className="building-info"><h3>{building.name}</h3><p>{building.description}</p><button onClick={() => upgrade(building)}>UPGRADE <span>· {100 * building.level} 🪵 / {60 * building.level} 🪨</span></button></div></article>)}
           </div> : <div className="empty-state"><span>✧</span><h3>{selected} is on the roadmap</h3><p>This feature will be added as the playable MVP grows.</p></div>}
         </div>
