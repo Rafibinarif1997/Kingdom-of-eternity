@@ -16,6 +16,7 @@ await app.register(rateLimit, { max: 90, timeWindow: "1 minute" });
 const newPlayerSchema = z.object({ displayName: z.string().trim().min(2).max(32), kingdomName: z.string().trim().min(2).max(40) });
 const upgradeSchema = z.object({ buildingId: z.string().uuid(), idempotencyKey: z.string().min(12).max(80) });
 const collectSchema = z.object({ idempotencyKey: z.string().min(12).max(80) });
+const buildSchema = z.object({ buildingCode: z.enum(["farm", "lumber_mill", "stone_mine", "iron_mine", "storage", "barracks"]), x: z.number().int().min(0).max(99), y: z.number().int().min(0).max(99), idempotencyKey: z.string().min(12).max(80) });
 
 async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -111,6 +112,41 @@ app.post("/v1/kingdoms/:kingdomId/collect", async (request, reply) => {
     return { replayed: false, collected: output, elapsedHours };
   });
   if (!result) return reply.code(404).send({ error: "kingdom_not_found" });
+  return result;
+});
+
+app.post("/v1/kingdoms/:kingdomId/buildings", async (request, reply) => {
+  const params = z.object({ kingdomId: z.string().uuid() }).safeParse(request.params);
+  const body = buildSchema.safeParse(request.body);
+  if (!params.success || !body.success) return reply.code(400).send({ error: "invalid_input" });
+  const costs: Record<string, { wood: number; stone: number }> = {
+    farm: { wood: 120, stone: 50 }, lumber_mill: { wood: 150, stone: 40 },
+    stone_mine: { wood: 100, stone: 80 }, iron_mine: { wood: 200, stone: 150 },
+    storage: { wood: 180, stone: 180 }, barracks: { wood: 250, stone: 200 }
+  };
+  const cost = costs[body.data.buildingCode]!;
+  const result = await transaction(async (client) => {
+    const kingdom = await client.query("SELECT id FROM kingdoms WHERE id=$1 FOR UPDATE", [params.data.kingdomId]);
+    if (!kingdom.rowCount) return { error: "kingdom_not_found" as const };
+    const duplicate = await client.query("SELECT id FROM resource_ledger WHERE kingdom_id=$1 AND idempotency_key = ANY($2::text[]) LIMIT 1", [params.data.kingdomId, ["wood", "stone"].map(code => `${body.data.idempotencyKey}:${code}`)]);
+    if (duplicate.rowCount) return { error: "duplicate_request" as const };
+    const occupied = await client.query("SELECT id FROM buildings WHERE kingdom_id=$1 AND grid_x=$2 AND grid_y=$3", [params.data.kingdomId, body.data.x, body.data.y]);
+    if (occupied.rowCount) return { error: "tile_occupied" as const };
+    const resources = await client.query("SELECT resource_code,balance FROM resource_balances WHERE kingdom_id=$1 AND resource_code IN ('wood','stone') FOR UPDATE", [params.data.kingdomId]);
+    const balances = Object.fromEntries(resources.rows.map(row => [row.resource_code, Number(row.balance)])) as Record<string, number>;
+    if ((balances.wood ?? 0) < cost.wood || (balances.stone ?? 0) < cost.stone) return { error: "insufficient_resources" as const, required: cost };
+    for (const [code, amount] of [["wood", cost.wood], ["stone", cost.stone]] as const) {
+      const after = balances[code]! - amount;
+      await client.query("UPDATE resource_balances SET balance=$1,updated_at=now() WHERE kingdom_id=$2 AND resource_code=$3", [after, params.data.kingdomId, code]);
+      await client.query("INSERT INTO resource_ledger(kingdom_id,resource_code,delta,balance_after,reason,idempotency_key) VALUES($1,$2,$3,$4,'building_placed',$5)", [params.data.kingdomId, code, -amount, after, `${body.data.idempotencyKey}:${code}`]);
+    }
+    const inserted = await client.query("INSERT INTO buildings(kingdom_id,building_code,grid_x,grid_y) VALUES($1,$2,$3,$4) RETURNING id,building_code,grid_x,grid_y,level", [params.data.kingdomId, body.data.buildingCode, body.data.x, body.data.y]);
+    return { ok: true, building: inserted.rows[0] };
+  });
+  if ("error" in result) {
+    const status = result.error === "kingdom_not_found" ? 404 : result.error === "insufficient_resources" || result.error === "tile_occupied" ? 409 : 400;
+    return reply.code(status).send(result);
+  }
   return result;
 });
 
